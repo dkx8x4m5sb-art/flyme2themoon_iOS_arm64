@@ -16,7 +16,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 全部逻辑在 ci/pipeline.sh（在仓库的 zip 里），改逻辑只要换 zip，不用改这个文件
+      # 先用仓库里的 zip（源码包 / 素材包）铺好工作区
+      - name: Unpack zips
+        run: |
+          shopt -s nullglob
+          for z in *.zip; do echo "unzip $z"; unzip -q -o "$z" -d .; done
+          ls -la | head -20
+
+      # 真逻辑在 ci/pipeline.sh（在源码 zip 里）
       - name: Pipeline
         run: bash ci/pipeline.sh
 
