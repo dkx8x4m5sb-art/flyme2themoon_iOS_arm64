@@ -10,122 +10,15 @@ permissions:
 
 jobs:
   build:
-    # 仓库公开后 arm64 runner 也能用；macos-15 自带 Xcode 16（iOS 18 SDK，兼容 iOS 17 target）
     runs-on: macos-15
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
 
-      # 仓库里存的是 zip（网页上传的），先解开；解不开也无所谓，后面会报清楚
-      - name: Unpack sources
-        run: |
-          set +e
-          shopt -s nullglob
-          for z in *.zip; do echo "解压 $z"; unzip -q -o "$z" -d .; done
-          ls -la | head -20
-          test -f project.yml
-
-      # Lua 5.1.5 的 C 源码不进仓库
-      - name: Lua sources
-        run: |
-          set -e
-          mkdir -p Sources/lua
-          if [ -z "$(ls -A Sources/lua)" ]; then
-            curl -sSLO https://www.lua.org/ftp/lua-5.1.5.tar.gz
-            tar xzf lua-5.1.5.tar.gz
-            cp lua-5.1.5/src/*.c lua-5.1.5/src/*.h Sources/lua/
-          fi
-          ls Sources/lua | head -3
-
-      # 素材：Release 里有两个已发布的 ipa 就铺上，没有就只验证编译
-      - name: Assets
-        continue-on-error: true
-        run: |
-          set +e
-          rm -rf ipa tmp
-          mkdir -p ipa tmp
-          echo "== release 列表 =="
-          gh release list --limit 10
-          echo "== 下载 =="
-          gh release download assets --pattern '*.ipa' --dir ipa
-          if ! ls ipa/*.ipa >/dev/null 2>&1; then
-            echo "!! assets 里没有 ipa，退到最新 release"
-            gh release download --pattern '*.ipa' --dir ipa
-          fi
-          ls -lh ipa
-
-          n=0
-          for f in ipa/*.ipa; do
-            [ -e "$f" ] || continue
-            n=$((n + 1))
-            unzip -q "$f" -d "tmp/$n" && echo "解包 $f → tmp/$n"
-          done
-          echo "共 $n 个 ipa"
-
-          ASSET_APP=""
-          LEGACY_APP=""
-          while IFS= read -r app; do
-            echo "候选 $app"
-            ls "$app" | head -6
-            if [ -d "$app/data" ] && [ -d "$app/atlas" ]; then ASSET_APP="$app"; fi
-            if [ -f "$app/FargroundsS1-hd.plist" ]; then LEGACY_APP="$app"; fi
-          done < <(find tmp -maxdepth 5 -name '*.app' -type d)
-          echo "素材包=$ASSET_APP"
-          echo "原版包=$LEGACY_APP"
-
-          if [ -n "$ASSET_APP" ] && [ -n "$LEGACY_APP" ]; then
-            rm -rf Resources/atlas Resources/art Resources/audio Resources/data Resources/fonts
-            mkdir -p Resources/atlas Resources/audio/bgm
-            cp -R "$ASSET_APP/atlas/." Resources/atlas/
-            for d in art audio data fonts; do
-              if [ -d "$ASSET_APP/$d" ]; then
-                mkdir -p "Resources/$d"
-                cp -R "$ASSET_APP/$d/." "Resources/$d/"
-              fi
-            done
-            cp "$LEGACY_APP"/*.caf Resources/audio/bgm/ 2>/dev/null
-            node Tools/build-atlas.mjs "$LEGACY_APP"
-            node Tools/build-frames.mjs
-            node Tools/check-data.mjs .
-            touch .assets-ok
-            echo "素材就绪"
-          else
-            echo "::warning::没认出两个包，这次只验证编译"
-          fi
-
-      - name: xcodegen
-        run: |
-          set -e
-          brew install xcodegen
-          xcodegen generate
-
-      - name: Build
-        id: build
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          xcodebuild \
-            -project FlyMe2theMoon.xcodeproj \
-            -scheme FlyMe2theMoon \
-            -configuration Release \
-            -sdk iphoneos \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            build 2>&1 | tee build-raw.log
-
-      - name: Package IPA
-        if: steps.build.outcome == 'success'
-        run: |
-          set -e
-          APP=build/Build/Products/Release-iphoneos/FlyMe2theMoon.app
-          rm -rf Payload FlyMe2theMoon-unsigned.ipa
-          mkdir -p Payload
-          cp -R "$APP" Payload/
-          zip -qry FlyMe2theMoon-unsigned.ipa Payload
-          ls -lh FlyMe2theMoon-unsigned.ipa
+      # 全部逻辑在 ci/pipeline.sh（在仓库的 zip 里），改逻辑只要换 zip，不用改这个文件
+      - name: Pipeline
+        run: bash ci/pipeline.sh
 
       - name: Upload IPA
         if: always() && hashFiles('FlyMe2theMoon-unsigned.ipa') != ''
@@ -133,27 +26,3 @@ jobs:
         with:
           name: FlyMe2theMoon-unsigned
           path: FlyMe2theMoon-unsigned.ipa
-
-      # 失败也把日志推回 ci-logs 分支，方便直接读
-      - name: Publish log
-        if: always()
-        run: |
-          set +e
-          {
-            echo "# outcome: build=${{ steps.build.outcome }}"
-            echo "# commit: ${{ github.sha }}"
-            echo "# time: $(date -u +%FT%TZ)"
-            echo
-            echo "----- 编译错误 -----"
-            grep -E "error:|BUILD (SUCCEEDED|FAILED)|The following build commands failed" build-raw.log | tail -400
-            echo
-            echo "----- 编译尾部 -----"
-            tail -150 build-raw.log
-          } > build-log.md
-          git config user.name "dsh-ci"
-          git config user.email "dsh-ci@users.noreply.github.com"
-          git checkout --orphan ci-logs 2>/dev/null || git checkout ci-logs
-          git rm -rf --cached . >/dev/null 2>&1
-          git add -f build-log.md
-          git commit -m "ci: log ${{ github.sha }}"
-          git push origin ci-logs --force
