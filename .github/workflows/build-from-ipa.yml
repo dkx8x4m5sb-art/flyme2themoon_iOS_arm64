@@ -1,9 +1,3 @@
-# 从两个原版 ipa 里取素材 → 归一化图集 → 编译 → 出未签名 IPA
-#
-# 需要：仓库的 Release（tag 默认 `assets`）里放两个附件：
-#   1. FlyMe2theMoon_v1.7.0_unsigned.ipa  —— 素材来源（atlas PNG / data / audio / art / fonts）
-#   2. 私奔到月球FlyMe2theMoon.ipa        —— 1.1 原版（图集的 cocos2d plist + 6 个 .caf BGM）
-# 没有附件时仍会跑编译（只验证能编译），最后一步会明确失败。
 name: Build from IPA
 
 on:
@@ -14,225 +8,33 @@ on:
       release_tag:
         description: 存放两个 ipa 的 Release tag
         default: assets
-        required: false
 
 permissions:
   contents: write
 
 jobs:
   build:
-    # 用 Intel 的 macos-13：`macos-14` 现在可能被分配成 arm64 runner
-    # （arm64 macOS runner 只在公开仓库/付费计划才有，否则报
-    #  "The configuration 'macos-14-arm64-us-default' is not supported"）。
-    # 想跑 arm64 runner 就改成 macos-14 / macos-15 并把仓库设为 public；
-    # 想用新的 Intel 镜像可以换 macos-15-intel。交叉编译 arm64 设备包在 Intel 上没问题。
-    runs-on: macos-13
+    # 仓库公开后 macos-14（arm64）也能用；arm64 runner 只对 public 仓库/付费计划开放
+    runs-on: macos-14
     env:
       TAG: ${{ inputs.release_tag || 'assets' }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Show Xcode
+      # 网页上传的往往是一个 zip，这里先解开（真逻辑在 ci/pipeline.sh）
+      - name: Unpack project
         run: |
-          xcodebuild -version
-          echo "iPhoneOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
-          SDK=$(xcrun --sdk iphoneos --show-sdk-version)
-          MAJOR=${SDK%%.*}
-          if [ "$MAJOR" -lt 17 ]; then
-            echo "::error::这台 runner 的 iOS SDK 是 $SDK，低于 17.0；换 macos-14/15 镜像（需要 public 仓库或付费计划）"
-            exit 1
-          fi
+          shopt -s nullglob
+          for z in *.zip; do echo "解压 $z"; unzip -q -o "$z" -d .; done
+          ls -la | head -20
 
-      # Lua 5.1.5 的 C 源码不进仓库（省 440 KB），没有就现取
-      - name: Bootstrap Lua sources
-        run: |
-          set -e
-          if [ -z "$(ls -A Sources/lua 2>/dev/null || true)" ]; then
-            curl -sSLO https://www.lua.org/ftp/lua-5.1.5.tar.gz
-            tar xzf lua-5.1.5.tar.gz
-            mkdir -p Sources/lua
-            cp lua-5.1.5/src/*.c lua-5.1.5/src/*.h Sources/lua/
-          fi
-          mkdir -p Resources
-
-      # ── 1. 下载并解包 ipa ─────────────────────────────────────────────
-      - name: Download and unpack IPAs
-        id: assets
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -u
-          exec > >(tee assets-raw.log) 2>&1
-          rm -rf ipa tmp
-          mkdir -p ipa tmp
-
-          echo "== release 列表 =="
-          gh release list --limit 20 || true
-          echo "== release $TAG 详情 =="
-          gh release view "$TAG" || echo "（没有 tag 为 $TAG 的 release）"
-
-          echo "== 下载 ipa =="
-          gh release download "$TAG" --pattern '*.ipa' --dir ipa \
-            || { echo "::warning::$TAG 下载失败，退到最新 release"; gh release download --pattern '*.ipa' --dir ipa || true; }
-
-          echo "== 下到的东西 =="
-          ls -lh ipa 2>/dev/null || true
-
-          n=0
-          for f in ipa/*.ipa; do
-            [ -e "$f" ] || continue
-            n=$((n + 1))
-            unzip -q "$f" -d "tmp/$n" || echo "::warning::$f 解包失败"
-            echo "解包 $f → tmp/$n"
-          done
-          echo "共解包 $n 个 ipa"
-          echo "== 找到的 .app =="
-          find tmp -maxdepth 5 -name '*.app' -type d | sed 's/^/  /' || true
-          exit 0
-
-      # ── 2. 认包：素材包 vs 1.1 原版 ──────────────────────────────────
-      - name: Locate app bundles
-        id: locate
-        continue-on-error: true
-        run: |
-          set -u
-          ASSET_APP=""
-          LEGACY_APP=""
-          for app in $(find tmp -maxdepth 5 -name '*.app' -type d); do
-            echo "--- 候选 $app"
-            ls "$app" | head -8 | sed 's/^/    /'
-            if [ -d "$app/data" ] && [ -d "$app/atlas" ]; then
-              ASSET_APP="$app"
-              echo "    → 素材包（有 data/ 和 atlas/）"
-            fi
-            if [ -f "$app/FargroundsS1-hd.plist" ]; then
-              LEGACY_APP="$app"
-              echo "    → 1.1 原版（有 cocos2d plist）"
-            fi
-          done
-          echo "素材包=$ASSET_APP"
-          echo "原版包=$LEGACY_APP"
-          [ -n "$ASSET_APP" ] && echo "asset_app=$ASSET_APP" >> "$GITHUB_OUTPUT"
-          [ -n "$LEGACY_APP" ] && echo "legacy_app=$LEGACY_APP" >> "$GITHUB_OUTPUT"
-          test -n "$ASSET_APP" && test -n "$LEGACY_APP"
-
-      # ── 3. 铺素材：PNG / 数据 / 音频 / 字体 / BGM ──────────────────────
-      - name: Stage resources
-        if: steps.locate.outcome == 'success'
-        run: |
-          set -e
-          A="${{ steps.locate.outputs.asset_app }}"
-          L="${{ steps.locate.outputs.legacy_app }}"
-          rm -rf Resources/atlas Resources/art Resources/audio Resources/data Resources/fonts
-          mkdir -p Resources/atlas Resources/audio/bgm
-          cp -R "$A/atlas/." Resources/atlas/
-          for d in art audio data fonts; do
-            if [ -d "$A/$d" ]; then
-              mkdir -p "Resources/$d"
-              cp -R "$A/$d/." "Resources/$d/"
-            fi
-          done
-          # 1.1 原版里的 6 首 .caf BGM（AVAudioPlayer 直接能播）
-          cp "$L"/*.caf Resources/audio/bgm/ 2>/dev/null || true
-          du -sh Resources/*
-
-      # ── 4. 图集归一化 + 数据自检 ──────────────────────────────────────
-      - name: Build atlas and check data
-        if: steps.locate.outcome == 'success'
-        run: |
-          set -e
-          node Tools/build-atlas.mjs "${{ steps.locate.outputs.legacy_app }}"
-          node Tools/build-frames.mjs
-          node Tools/check-data.mjs .
-          touch .assets-ok
-
-      # ── 5. 编译 ──────────────────────────────────────────────────────
-      - name: Install xcodegen
-        run: brew install xcodegen
-
-      - name: Generate Xcode project
-        run: xcodegen generate
-
-      - name: Build
-        id: build
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          xcodebuild \
-            -project FlyMe2theMoon.xcodeproj \
-            -scheme FlyMe2theMoon \
-            -configuration Release \
-            -sdk iphoneos \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            build 2>&1 | tee build-raw.log
-          echo "exit=$?" | tee -a build-raw.log
-
-      # ── 6. 打包 IPA ──────────────────────────────────────────────────
-      - name: Package unsigned IPA
-        if: steps.build.outcome == 'success'
-        run: |
-          set -e
-          APP="build/Build/Products/Release-iphoneos/FlyMe2theMoon.app"
-          ls -la "$APP"
-          rm -rf Payload FlyMe2theMoon-unsigned.ipa
-          mkdir -p Payload
-          cp -R "$APP" Payload/
-          zip -qry FlyMe2theMoon-unsigned.ipa Payload
-          ls -lh FlyMe2theMoon-unsigned.ipa
+      - name: Pipeline
+        run: bash ci/pipeline.sh
 
       - name: Upload IPA
-        if: steps.build.outcome == 'success'
+        if: always() && hashFiles('FlyMe2theMoon-unsigned.ipa') != ''
         uses: actions/upload-artifact@v4
         with:
           name: FlyMe2theMoon-unsigned
           path: FlyMe2theMoon-unsigned.ipa
-          if-no-files-found: error
-
-      # ── 7. 把编译输出推回 ci-logs 分支，方便直接读日志 ─────────────────
-      - name: Publish build log
-        if: always()
-        run: |
-          set -e
-          {
-            echo "# outcome: build=${{ steps.build.outcome }} assets=${{ steps.assets.outcome }}"
-            echo "# commit: ${{ github.sha }}"
-            echo "# time: $(date -u +%FT%TZ)"
-            echo
-            echo "----- 素材阶段 -----"
-            tail -80 assets-raw.log 2>/dev/null || true
-            echo
-            echo "----- 编译错误 -----"
-            grep -E "error:|BUILD (SUCCEEDED|FAILED)|The following build commands failed" build-raw.log 2>/dev/null | tail -400 || true
-            echo
-            echo "----- 编译尾部 -----"
-            tail -120 build-raw.log 2>/dev/null || true
-          } > build-log.md
-          git config user.name "dsh-ci"
-          git config user.email "dsh-ci@users.noreply.github.com"
-          git checkout --orphan ci-logs 2>/dev/null || git checkout ci-logs
-          git rm -rf --cached . >/dev/null 2>&1 || true
-          git add -f build-log.md
-          git commit -m "ci: build log for ${{ github.sha }}" || true
-          git push origin ci-logs --force
-
-      # ── 8. 素材缺失时明确失败，别让人以为包是好的 ──────────────────────
-      - name: Fail if assets were missing
-        if: always()
-        run: |
-          if [ -f Resources/atlas/normalized.json ]; then
-            echo "素材已经在仓库里（Resources/atlas/normalized.json 存在），跳过 Release 检查。"
-            exit 0
-          fi
-          if [ ! -f .assets-ok ]; then
-            echo "::error::没拿到素材。核对下面三件事："
-            echo "  1) 仓库里是否有 tag 为 \"$TAG\" 的 Release（不是 tag、不是 draft）"
-            echo "  2) 这个 Release 是否挂了两个 .ipa 附件（FlyMe2theMoon_v1.7.0_unsigned.ipa 和 私奔到月球FlyMe2theMoon.ipa）"
-            echo "  3) 附件是不是真的 ipa（zip 里应有 Payload/*.app）"
-            echo "这次只验证了编译，产出的包缺素材。"
-            exit 1
-          fi
-          echo "素材齐了，包是完整的。"
