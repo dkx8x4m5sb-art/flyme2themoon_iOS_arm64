@@ -1,0 +1,63 @@
+name: Unsigned IPA
+
+# 由 dsh-go 的 GitHub 交付插件写入并触发。
+# 在 GitHub 的 macOS 运行器上编译，产出未签名 .ipa 作为构建产物（artifact）。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 检查工具链
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: 生成工程（有 project.yml 时）
+        run: |
+          if [ -f project.yml ]; then
+            brew install xcodegen
+            xcodegen generate
+          fi
+          ls -d *.xcodeproj
+
+      - name: 编译
+        run: |
+          set -euo pipefail
+          PROJ=$(ls -d *.xcodeproj | head -1)
+          SCHEME=$(basename "$PROJ" .xcodeproj)
+          xcodebuild \
+            -project "$PROJ" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: 打包未签名 IPA
+        run: |
+          set -euo pipefail
+          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -1)
+          test -n "$APP"
+          NAME=$(basename "$APP" .app)
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry "$NAME-unsigned.ipa" Payload
+          ls -lh "$NAME-unsigned.ipa"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-ipa
+          path: ./*.ipa
+          if-no-files-found: error
