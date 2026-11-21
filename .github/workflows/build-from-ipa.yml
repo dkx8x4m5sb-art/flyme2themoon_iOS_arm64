@@ -15,7 +15,7 @@ permissions:
 jobs:
   build:
     # 仓库公开后 macos-14（arm64）也能用；arm64 runner 只对 public 仓库/付费计划开放
-    runs-on: macos-14
+    runs-on: macos-15
     env:
       TAG: ${{ inputs.release_tag || 'assets' }}
       GH_TOKEN: ${{ github.token }}
