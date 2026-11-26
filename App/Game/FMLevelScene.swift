@@ -65,7 +65,7 @@ final class FMLevelScene: SKScene {
     private var velocity = CGVector.zero
     private var onGround = false
     private var dead = false
-    private var paused = false
+    private var logicPaused = false
     private var inputEnabled = true
     private var idleEnabled = true
     private var completed = false
@@ -275,7 +275,7 @@ final class FMLevelScene: SKScene {
         pollLuaDialog()
 
         if !completed {
-            if !paused {
+            if !logicPaused {
                 if !dead { levelTime += Double(dt) }
                 step(dt: dt)
             }
@@ -468,7 +468,7 @@ final class FMLevelScene: SKScene {
     // MARK: - 输入
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard inputEnabled, !dead, !completed, !paused, touches.count == 1, let touch = touches.first else { return }
+        guard inputEnabled, !dead, !completed, !logicPaused, touches.count == 1, let touch = touches.first else { return }
         charging = true
         chargeStart = touch.location(in: self)
         chargeCurrent = chargeStart
@@ -654,7 +654,7 @@ extension FMLevelScene: FMLuaHostDelegate {
     }
 
     func luaSetLogicPaused(_ paused: Bool) {
-        self.paused = paused
+        self.logicPaused = paused
     }
 
     func luaRestartTiming() {
