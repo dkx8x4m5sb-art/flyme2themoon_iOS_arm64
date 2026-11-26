@@ -46,7 +46,7 @@ struct FMLevelView: View {
                 }
                 Spacer()
                 if model.result == nil {
-                    Text("按住拖动瞵准 · 松手弹射")
+                    Text("按住拖动瞄准 · 松手弹射")
                         .font(.system(size: 12))
                         .foregroundStyle(.white.opacity(0.45))
                         .padding(.bottom, 18)
