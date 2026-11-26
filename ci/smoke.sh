@@ -40,8 +40,8 @@ xcrun simctl bootstatus "$UDID" -b
 ls -l "$SIM_APP"
 plutil -p "$SIM_APP/Info.plist" | grep -E "CFBundleIdentifier|CFBundleSupportedPlatforms|CFBundleExecutable" || note_fail "Info.plist 关键键缺失"
 
-# 显式指定 identifier，避免 codesign 读不到 CFBundleIdentifier 时生成合成 ID
-codesign --force --deep --sign - --identifier "$BID" "$SIM_APP" 2>&1 | tail -3 || true
+# 不要 --deep：--deep 签名会让 app 的 Info.plist 变成 not bound，simctl 就取不到 bundle id
+codesign --force --sign - --identifier "$BID" "$SIM_APP" 2>&1 | tail -3 || true
 codesign -dv "$SIM_APP" 2>&1 | head -6 || true
 
 if ! xcrun simctl install "$UDID" "$SIM_APP"; then
