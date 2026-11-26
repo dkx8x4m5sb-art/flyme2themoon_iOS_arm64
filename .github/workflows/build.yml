@@ -31,6 +31,10 @@ jobs:
       - name: Build
         run: bash ci/pipeline.sh
 
+      - name: Sign probe (diagnostic)
+        if: always()
+        run: bash ci/sign_probe.sh Payload/FlyMe2theMoon.app python3 || true
+
       - name: Upload IPA artifact
         if: always() && hashFiles('FlyMe2theMoon-v1.7.0-arm64.ipa') != ''
         uses: actions/upload-artifact@v4
