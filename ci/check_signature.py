@@ -6,7 +6,6 @@
 """
 import hashlib
 import os
-import plistlib
 import struct
 import sys
 
@@ -26,7 +25,7 @@ def parse_cd(binary):
         raise ValueError('SuperBlob magic 不对')
     count = struct.unpack('>I', blob[8:12])[0]
     for i in range(count):
-        slot, o = struct.unpack('>II', blob[12 + i * 8:20 + i * 8])
+        _, o = struct.unpack('>II', blob[12 + i * 8:20 + i * 8])
         if struct.unpack('>I', blob[o:o + 4])[0] == 0xfade0c02:
             cd = blob[o:]
             fields = {
@@ -60,33 +59,42 @@ def main() -> int:
 
     page = 1 << f['pageSizeLog'] if f['pageSizeLog'] else 0
     ho, hs = f['hashOffset'], f['hashSize']
+    ns, nc = f['nSpecial'], f['nCode']
+    if len(cd) - ho < (ns + nc) * hs:
+        print('!! CodeDirectory 哈希数组空间不足：只容得下 %d 个槽（应为 %d+%d）'
+              % ((len(cd) - ho) // hs, ns, nc))
+        print('!! 这不是 codesign 生成的签名（ld 的 linker 签名没有 Info.plist/CodeResources 槽）')
+        return 1
+
     bad = []
-    for i in range(f['nCode']):
+    for i in range(nc):
         start = i * page
         end = min(start + page, f['codeLimit'])
         digest = hashlib.sha256(binary[start:end]).digest()[:hs]
-        stored = cd[ho + (f['nSpecial'] + i) * hs:ho + (f['nSpecial'] + i + 1) * hs]
+        stored = cd[ho + i * hs:ho + (i + 1) * hs]
         if digest != stored:
             bad.append(i)
-    print('分页哈希：%d/%d 不一致' % (len(bad), f['nCode']))
+    print('分页哈希：%d/%d 不一致' % (len(bad), nc))
     if bad:
         print('前几个坏页：%s' % bad[:10])
 
+    slots = [cd[ho + (nc + k) * hs:ho + (nc + k + 1) * hs] for k in range(ns)]
+    zero_slots = sum(1 for x in slots if not any(x))
+    print('special slots：%d 个，其中全零 %d 个' % (ns, zero_slots))
+
     plist_path = os.path.join(app, 'Info.plist')
     plist_bytes = open(plist_path, 'rb').read()
-    slot0 = cd[ho:ho + hs]
-    plist_ok = hashlib.sha256(plist_bytes).digest()[:hs] == slot0
+    plist_ok = bool(slots) and hashlib.sha256(plist_bytes).digest()[:hs] == slots[0]
     print('Info.plist 槽：%s' % ('一致' if plist_ok else '不一致'))
 
     res_ok = True
     cr_path = os.path.join(app, '_CodeSignature', 'CodeResources')
-    if os.path.exists(cr_path) and f['nSpecial'] >= 3:
+    if os.path.exists(cr_path) and ns >= 3:
         cr = open(cr_path, 'rb').read()
-        slot2 = cd[ho + 2 * hs:ho + 3 * hs]
         cand = hashlib.sha256(cr).digest()[:hs]
-        if cand != slot2:
+        if cand != slots[2]:
             cand = hashlib.sha1(cr).digest()[:hs]
-        res_ok = cand == slot2
+        res_ok = cand == slots[2]
         print('CodeResources 槽：%s' % ('一致' if res_ok else '不一致'))
 
     if bad or not plist_ok or not res_ok:

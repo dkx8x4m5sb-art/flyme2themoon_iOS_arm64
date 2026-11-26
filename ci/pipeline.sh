@@ -157,12 +157,13 @@ cp -R "$APP_PATH" Payload/
 codesign --remove-signature "Payload/FlyMe2theMoon.app" 2>&1 | tail -2 || true
 codesign --remove-signature "Payload/FlyMe2theMoon.app/FlyMe2theMoon" 2>&1 | tail -2 || true
 rm -rf "Payload/FlyMe2theMoon.app/_CodeSignature"
-if codesign --force --sign - --identifier com.mihoyo.flyme2themoon.arm64 --timestamp=none \
-    "Payload/FlyMe2theMoon.app" 2>sign.err; then
-  tail -3 sign.err || true
-else
-  echo "!! codesign 失败："; cat sign.err || true
-fi
+set +e
+codesign --force --sign - --identifier com.mihoyo.flyme2themoon.arm64 --timestamp=none \
+  "Payload/FlyMe2theMoon.app" > sign.out 2>&1
+CS=$?
+set -e
+echo "codesign exit=$CS"
+tail -25 sign.out || true
 if $PY ci/check_signature.py "Payload/FlyMe2theMoon.app"; then
   echo "签名自洽，按 ad-hoc 签名交付"
 else
