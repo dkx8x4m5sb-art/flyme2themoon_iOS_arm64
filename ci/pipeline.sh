@@ -151,13 +151,13 @@ log "打包 IPA"
 rm -rf Payload "$IPA"
 mkdir -p Payload
 cp -R "$APP_PATH" Payload/
-# xcodebuild 关掉签名时，ld 留下的 linker 签名会被后续 strip 破掉（分页哈希全不一致），
-# 第三方签名工具会先校验 embedded 签名然后中止。这里先清掉，再用 codesign 重签 ad-hoc。
+# xcodebuild 关掉签名时，ld 仍会留下 linker 签名（分页哈希有效，但 Info.plist / CodeResources 槽为空），
+# 第三方签名工具预检 embedded 签名时会判定失败并中止。所以先清掉旧签名，再用 codesign 打一份完整的 ad-hoc 签名。
 codesign --remove-signature "Payload/FlyMe2theMoon.app" 2>&1 | tail -2 || true
 codesign --remove-signature "Payload/FlyMe2theMoon.app/FlyMe2theMoon" 2>&1 | tail -2 || true
 rm -rf "Payload/FlyMe2theMoon.app/_CodeSignature"
-# codesign 是 Apple 自己的签名实现；签名是否有效以 codesign --verify 为准，
-# check_signature.py 只用来打印结构细节并交叉验证（解析器出错时不会误杀正确签名）。
+# 签名是否有效以 Apple 自己的 codesign --verify 为准；
+# check_signature.py 只打印结构细节并交叉验证（解析器若出错也不会误杀正确签名）。
 xattr -cr "Payload/FlyMe2theMoon.app" 2>/dev/null || true
 set +e
 codesign --force --sign - --identifier com.mihoyo.flyme2themoon.arm64 --timestamp=none \
@@ -174,24 +174,38 @@ echo "--- codesign --verify ---"
 cat verify.out || true
 echo "--- CodeDirectory 概览 ---"
 grep -E "Identifier|Format|CodeDirectory|CDHash|Signature|TeamIdentifier|Sealed Resources|Internal Error" desc.out || true
-$PY ci/check_signature.py "Payload/FlyMe2theMoon.app" || true
 echo "sha256(Info.plist)=$(shasum -a 256 "Payload/FlyMe2theMoon.app/Info.plist" | cut -d' ' -f1)"
-echo "--- codesign 特殊槽（-1=Info.plist / -3=CodeResources）---"
+echo "--- 补写前：codesign 特殊槽 ---"
 codesign --display -vvvvvv "Payload/FlyMe2theMoon.app" 2>&1 | grep -E '^-?[0-9]+=|Bound|Info.plist' || true
-# 对照实验：不带 --identifier 重签一份副本，看 codesign 是否把 Info.plist 写进 slot -1
-rm -rf /tmp/FlyMe2theMoon.app
-cp -R "Payload/FlyMe2theMoon.app" /tmp/FlyMe2theMoon.app
-xattr -cr /tmp/FlyMe2theMoon.app 2>/dev/null || true
-codesign --force --sign - --timestamp=none /tmp/FlyMe2theMoon.app >/dev/null 2>&1 || true
-echo "--- 对照：不带 --identifier 重签 ---"
-codesign --display -vvvvvv /tmp/FlyMe2theMoon.app 2>&1 | grep -E '^-?[0-9]+=|Bound' || true
-$PY ci/check_signature.py /tmp/FlyMe2theMoon.app 2>/dev/null | grep -E '^CodeDirectory|Info.plist 槽|CodeResources 槽|分页哈希' || true
-rm -rf /tmp/FlyMe2theMoon.app
-if [ "$CS" -eq 0 ] && [ "$VF" -eq 0 ]; then
-  echo "签名有效：codesign --verify --strict 通过，按 ad-hoc 签名交付"
-  SIGN_STATE="ad-hoc 签名有效"
+$PY ci/check_signature.py "Payload/FlyMe2theMoon.app" || true
+
+# codesign 对 iOS 扁平 bundle 做 ad-hoc 签名时可能不绑定 Info.plist（slot -1 全零），
+# 全能签这类重签工具预检会报 “Info.plist无效”。ad-hoc 无 CMS 密文，补齐 slot -1 后结构即自洽。
+rm -rf /tmp/app_backup
+cp -R "Payload/FlyMe2theMoon.app" /tmp/app_backup
+PATCH_RC=0
+$PY ci/fix_infoplist_slot.py "Payload/FlyMe2theMoon.app" || PATCH_RC=$?
+echo "--- 补写后：codesign 特殊槽 ---"
+codesign --display -vvvvvv "Payload/FlyMe2theMoon.app" 2>&1 | grep -E '^-?[0-9]+=|Bound|Info.plist' || true
+codesign --verify --strict --verbose=4 "Payload/FlyMe2theMoon.app" > verify2.out 2>&1
+VF2=$?
+SC=0
+$PY ci/check_signature.py "Payload/FlyMe2theMoon.app" || SC=$?
+echo "patch exit=$PATCH_RC  verify(after patch) exit=$VF2  check_signature exit=$SC"
+cat verify2.out || true
+
+if [ "$PATCH_RC" -ne 0 ]; then
+  echo "!! 补写 slot -1 失败，回退到补写前的签名产物"
+  rm -rf "Payload/FlyMe2theMoon.app"
+  cp -R /tmp/app_backup "Payload/FlyMe2theMoon.app"
+fi
+rm -rf /tmp/app_backup
+
+if [ "$CS" -eq 0 ] && [ "$VF" -eq 0 ] && [ "$PATCH_RC" -eq 0 ] && [ "$VF2" -eq 0 ] && [ "$SC" -eq 0 ]; then
+  echo "签名有效且自洽：codesign --verify --strict 通过，Info.plist 已绑定"
+  SIGN_STATE="ad-hoc 签名有效（Info.plist 已绑定）"
 else
-  echo "!! codesign 未能产出有效签名（exit=$CS verify=$VF），回退为完全未签名"
+  echo "!! 未能产出有效签名（codesign=$CS verify=$VF patch=$PATCH_RC verify2=$VF2 selfcheck=$SC），回退为完全未签名"
   codesign --remove-signature "Payload/FlyMe2theMoon.app" 2>&1 | tail -2 || true
   codesign --remove-signature "Payload/FlyMe2theMoon.app/FlyMe2theMoon" 2>&1 | tail -2 || true
   rm -rf "Payload/FlyMe2theMoon.app/_CodeSignature"
@@ -211,7 +225,7 @@ $PY ci/check_ipa.py "$IPA"
 if [ -n "${GH_TOKEN:-}" ]; then
   log "上传 release"
   ASSET="FlyMe2theMoon-v1.7.0-arm64.ipa"
-  gh release view build >/dev/null 2>&1 || gh release create build --title "arm64 构建产物" --notes "由 GitHub Actions 自动构建，arm64，不含开发者证书（ad-hoc 签名由 codesign 完成）。" || true
+  gh release view build >/dev/null 2>&1 || gh release create build --title "arm64 构建产物" --notes "由 GitHub Actions 自动构建，arm64，不含开发者证书（ad-hoc 签名由 codesign 完成，Info.plist 已绑定）。" || true
   gh release delete-asset build "FlyMe2theMoon-v1.7.0-arm64-unsigned.ipa" --yes >/dev/null 2>&1 || true
   gh release upload build "$IPA" --clobber || echo "!! release 上传失败"
 fi
