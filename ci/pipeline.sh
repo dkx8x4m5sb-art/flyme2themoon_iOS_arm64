@@ -30,7 +30,8 @@ push_log() {
     git config user.email "fm-ci@users.noreply.github.com" || true
     git checkout --orphan ci-logs 2>/dev/null || git checkout ci-logs 2>/dev/null || true
     git rm -rf --cached . >/dev/null 2>&1 || true
-    git add -f "$LOG" || true
+    git add -f "$LOG" >/dev/null 2>&1 || true
+    git add -f smoke-*.png >/dev/null 2>&1 || true
     git commit -m "ci: ${GITHUB_SHA:-local}" >/dev/null 2>&1 || true
     git push origin ci-logs --force >/dev/null 2>&1 || echo "!! push ci-logs failed"
   fi
@@ -140,6 +141,10 @@ done < <(find "$APP_PATH" -type f -print0)
 [ "$BAD" -eq 0 ] || { echo "!! 存在非 arm64 的可执行文件"; false; }
 
 plutil -p "$APP_PATH/Info.plist" | grep -E "CFBundleIdentifier|MinimumOSVersion|CFBundleExecutable" || true
+
+# ── 4.5 模拟器冒烟测试 ────────────────────────────────────────────────
+log "模拟器冒烟测试"
+bash ci/smoke.sh
 
 # ── 5. 打包 IPA ────────────────────────────────────────────────────────
 log "打包未签名 IPA"
