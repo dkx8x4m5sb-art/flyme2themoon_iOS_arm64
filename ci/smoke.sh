@@ -17,6 +17,8 @@ xcodebuild \
   -sdk iphonesimulator \
   -derivedDataPath build-sim \
   ARCHS=arm64 \
+  PRODUCT_BUNDLE_IDENTIFIER=com.mihoyo.flyme2themoon.arm64 \
+  GENERATE_INFOPLIST_FILE=YES \
   ONLY_ACTIVE_ARCH=NO \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO \
@@ -31,6 +33,9 @@ UDID=$(xcrun simctl list devices available | grep -m1 -E "iPhone 16 \(" | sed -E
 test -n "$UDID" || { echo "!! 找不到 iPhone 16 模拟器"; false; }
 xcrun simctl boot "$UDID" 2>/dev/null || true
 xcrun simctl bootstatus "$UDID" -b
+
+ls -l "$SIM_APP" || true
+plutil -p "$SIM_APP/Info.plist" | grep -E "CFBundleIdentifier|CFBundleExecutable|MinimumOSVersion" || echo "!! Info.plist 缺少关键键"
 
 xcrun simctl install "$UDID" "$SIM_APP"
 OUT=$(xcrun simctl launch "$UDID" "$BID")
