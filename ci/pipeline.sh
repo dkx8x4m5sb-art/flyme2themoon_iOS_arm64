@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 从原版 IPA 走到未签名 arm64 IPA 的全部构建步骤。
+# 从原版 IPA 走到 arm64 IPA 的全部构建步骤。
 # 失败时把日志推到 ci-logs 分支，成功时把 IPA 挂到 build release，方便下载核对。
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -147,15 +147,31 @@ log "模拟器冒烟测试（建议性）"
 bash ci/smoke.sh || true
 
 # ── 5. 打包 IPA ────────────────────────────────────────────────────────
-log "打包未签名 IPA"
+log "打包 IPA"
 rm -rf Payload "$IPA"
 mkdir -p Payload
 cp -R "$APP_PATH" Payload/
-# 交付约定是「完全未签名」：去掉 xcodebuild 留下的 linker 签名与 _CodeSignature，
-# 否则第三方签名工具会先校验 embedded 签名，签名与 Mach-O 不一致时直接中止。
-codesign --remove-signature "Payload/FlyMe2theMoon.app" 2>&1 | tail -3 || true
-codesign --remove-signature "Payload/FlyMe2theMoon.app/FlyMe2theMoon" 2>&1 | tail -3 || true
+# xcodebuild 关掉签名时，ld 留下的 linker 签名会被后续 strip 破掉（分页哈希全不一致），
+# 第三方签名工具会先校验 embedded 签名然后中止。这里先清掉，再用 codesign 重签 ad-hoc，
+# 并用 ci/check_signature.py 验证 CodeDirectory 与 Mach-O/Info.plist/CodeResources 自洽。
+codesign --remove-signature "Payload/FlyMe2theMoon.app" 2>&1 | tail -2 || true
+codesign --remove-signature "Payload/FlyMe2theMoon.app/FlyMe2theMoon" 2>&1 | tail -2 || true
 rm -rf "Payload/FlyMe2theMoon.app/_CodeSignature"
+if codesign --force --sign - --identifier com.mihoyo.flyme2themoon.arm64 --timestamp=none \
+    "Payload/FlyMe2theMoon.app" 2>sign.err; then
+  tail -3 sign.err || true
+else
+  echo "!! codesign 失败："; cat sign.err || true
+fi
+if $PY ci/check_signature.py "Payload/FlyMe2theMoon.app"; then
+  echo "签名自洽，按 ad-hoc 签名交付"
+else
+  echo "!! 签名不自洽，回退为完全未签名"
+  codesign --remove-signature "Payload/FlyMe2theMoon.app" 2>&1 | tail -2 || true
+  codesign --remove-signature "Payload/FlyMe2theMoon.app/FlyMe2theMoon" 2>&1 | tail -2 || true
+  rm -rf "Payload/FlyMe2theMoon.app/_CodeSignature"
+  $PY ci/check_signature.py "Payload/FlyMe2theMoon.app" || true
+fi
 # IPA 规范结构：zip 根目录下必须是 Payload/xxx.app
 rm -f "$IPA"
 zip -qry "$IPA" Payload

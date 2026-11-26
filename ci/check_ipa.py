@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""校验 IPA 是否满足交付约定：结构、架构、未签名、资源齐全。
+"""校验 IPA 是否满足交付约定：结构、架构、资源齐全。
 
 用法：python3 ci/check_ipa.py <ipa 路径>
 失败时以非 0 退出，便于 CI 拦截。
@@ -66,9 +66,7 @@ def main() -> int:
     if cputype != 16777228:
         problems.append('主程序不是 arm64')
     if has_sig:
-        problems.append('主程序仍带 LC_CODE_SIGNATURE（交付约定是未签名）')
-    if signed_entries:
-        problems.append('包内仍有 _CodeSignature（交付约定是未签名）')
+        print('提示：主程序带 LC_CODE_SIGNATURE（ad-hoc 签名），自洽性由 check_signature.py 负责')
     if counts['lua'] != 60 or counts['wav'] != 70:
         problems.append('资源数量不对：lua=%d wav=%d' % (counts['lua'], counts['wav']))
 
@@ -76,7 +74,7 @@ def main() -> int:
         for p in problems:
             print('!! ' + p)
         return 1
-    print('校验通过：arm64 结构 + 完全未签名 + 资源齐全')
+    print('校验通过：arm64 结构 + 资源齐全')
     return 0
 
 
