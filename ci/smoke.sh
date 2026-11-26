@@ -35,7 +35,11 @@ xcrun simctl boot "$UDID" 2>/dev/null || true
 xcrun simctl bootstatus "$UDID" -b
 
 ls -l "$SIM_APP" || true
-plutil -p "$SIM_APP/Info.plist" | grep -E "CFBundleIdentifier|CFBundleExecutable|MinimumOSVersion" || echo "!! Info.plist 缺少关键键"
+plutil -p "$SIM_APP/Info.plist" || echo "!! Info.plist 读取失败"
+
+# Xcode 16 的 Debug 产物带 debug dylib，未签名时 simctl 可能拿不到 bundle id，先 ad-hoc 签名
+codesign --force --deep --sign - "$SIM_APP" 2>&1 | tail -3 || true
+codesign -dv "$SIM_APP" 2>&1 | head -4 || true
 
 xcrun simctl install "$UDID" "$SIM_APP"
 OUT=$(xcrun simctl launch "$UDID" "$BID")
