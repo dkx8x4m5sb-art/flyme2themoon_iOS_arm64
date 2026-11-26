@@ -1,6 +1,6 @@
 # FlyMe2theMoon ARM64 移植与 IPA 编译流程（实际实施记录）
 
-本文记录本仓库实际做到的路线、证据和取舍，对应“从零重建、不处理签名、产出未签名 arm64 IPA”的目标。
+本文记录本仓库实际做到的路线、证据和取舍，对应“从零重建、不处理开发者证书签名、产出可直接被重签工具接受的 arm64 IPA”的目标。
 与原版 32 位 IPA 的差别在于：**没有做指令集翻译，而是重建运行时**——原版 32 位 Mach-O 无法转换成 arm64，
 素材包里也没有可直接复用的 64 位引擎，因此保留原版的数据与脚本，用原生新引擎承载。
 
@@ -69,7 +69,7 @@ Lua 调用转成 Objective-C 消息（注意宏参数必须是带冒号的完整
 `ci/prepare_assets.py`：从 `.app` 取 `data/`、`audio/`、`art/`、`fonts/` 与图集页，未旋转帧按原页矩形
 零拷贝引用，旋转帧转正后写 `*-extraN.png` 补页，输出 `atlas/frames.json`（1051 帧 + 补页共 1122 帧、
 71 个旋转帧、Resources 约 38 MB）。`ci/verify_data.py` 断言 60 关 / 22403 个贴图对象 / 1122 帧 /
-60 个 Lua 脚本 / 70 个音效；`ci/check_ipa.py` 在打包后断言结构、arm64 与“完全未签名”。
+60 个 Lua 脚本 / 70 个音效；`ci/check_ipa.py` 在打包后断言结构、arm64 与资源齐全。
 
 ## 4. GitHub Actions 流水线
 
@@ -83,18 +83,25 @@ Lua 调用转成 Objective-C 消息（注意宏参数必须是带冒号的完整
 3. 下载并解包素材 IPA，调 `prepare_assets.py` 与 `verify_data.py`。
 4. `xcodegen generate`，`xcodebuild -configuration Release -sdk iphoneos ARCHS=arm64 CODE_SIGNING_ALLOWED=NO`。
 5. 全量校验：主程序 `lipo -info` 必须是 arm64，app 内每个 Mach-O 都必须是 arm64。
-6. 打 IPA：建 `Payload/`，`codesign --remove-signature` 去掉 linker 残留签名并删除
-   `_CodeSignature`，`zip -qry $IPA Payload`，再用 `ci/check_ipa.py` 断言 Payload 顶层结构、
-   主程序 arm64、完全未签名（无 `LC_CODE_SIGNATURE`）、资源齐全。
-7. `gh release upload build` 覆盖上传 `FlyMe2theMoon-v1.7.0-arm64-unsigned.ipa`；同时上传 artifact
-   `FlyMe2theMoon-unsigned-ipa`。失败时把 `build-log.md` 推到 `ci-logs` 分支。
+6. 打 IPA：建 `Payload/`，`codesign --remove-signature` 去掉 ld 的 linker 残留签名并删除
+   `_CodeSignature`，`xattr -cr`，再 `codesign --force --sign - --identifier <bundleid>` 打 ad-hoc 签名。
+7. `ci/fix_infoplist_slot.py` 补写 CodeDirectory special slot -1：实测 codesign 在本包的 iOS 扁平
+   bundle 上会留下 "Info.plist=not bound"（slot -1 全零），全能签预检据此报 “Info.plist无效” 并中止；
+   ad-hoc 没有 CMS 密文，slot -1 只是结构哈希，补齐后签名结构自洽（分页哈希不变、CodeDirectory 长度不变）。
+8. 双重校验：`codesign --verify --strict` 必须 `valid on disk` + `satisfies its Designated Requirement`，
+   `ci/check_signature.py` 必须 238/238 分页哈希一致、Info.plist 槽一致、CodeResources 槽一致；
+   任何一项不成立就回退为完全未签名（不再输出半吊子签名包）。
+9. `gh release upload build` 覆盖上传 `FlyMe2theMoon-v1.7.0-arm64.ipa`；同时上传 artifact
+   `FlyMe2theMoon-ipa`。失败时把 `build-log.md` 推到 `ci-logs` 分支。
 
 产物直链：
-`https://github.com/dkx8x4m5sb-art/flyme2themoon_iOS_arm64/releases/download/build/FlyMe2theMoon-v1.7.0-arm64-unsigned.ipa`
+`https://github.com/dkx8x4m5sb-art/flyme2themoon_iOS_arm64/releases/download/build/FlyMe2theMoon-v1.7.0-arm64.ipa`
 
 ## 5. 产物校验（实测）
 
-- 结构：`Payload/FlyMe2theMoon.app`，无 `_CodeSignature`，主程序无 `LC_CODE_SIGNATURE`（完全未签名）。
+- 结构：`Payload/FlyMe2theMoon.app`，含 `_CodeSignature/CodeResources`（177 个资源条目），
+  主程序带 `LC_CODE_SIGNATURE`（ad-hoc，CodeDirectory `v=0x20400`、`nSpecial=3`、`nCode=238`、
+  `codeLimit=972112`），EOF 追加密文区 25,888 字节。
 - 架构：主程序 magic `0xfeedfacf`、`cputype 16777228`（ARM64），`lipo -info` 输出 `architecture: arm64`。
 - 元信息：`CFBundleIdentifier=com.mihoyo.flyme2themoon.arm64`、`CFBundleShortVersionString=1.7.0`、
   `CFBundleVersion=6`、`MinimumOSVersion=16.0`、`CFBundleExecutable=FlyMe2theMoon`、
@@ -105,7 +112,7 @@ Lua 调用转成 Objective-C 消息（注意宏参数必须是带冒号的完整
 
 ## 6. 验证边界与已知差距
 
-- **已证明**：工程可从零生成、可编译、可打包；产物结构、架构、未签名状态、资源齐全性均经脚本断言。
+- **已证明**：工程可从零生成、可编译、可打包；产物结构、架构、签名自洽性、资源齐全性均经脚本断言。
 - **未证明**：真机 / 模拟器上的可运行性。GitHub macOS 运行器上 `simctl install` 会报
   `IXErrorDomain code=13 Missing bundle ID`，而 app 的 `Info.plist` 中 `CFBundleIdentifier` 正常、
   `CFBundleSupportedPlatforms=[iPhoneSimulator]` 正常，属于运行器/模拟器侧问题；`ci/smoke.sh`
