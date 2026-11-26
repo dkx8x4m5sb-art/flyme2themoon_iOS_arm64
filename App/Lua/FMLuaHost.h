@@ -69,6 +69,7 @@ typedef NS_ENUM(NSInteger, FMLuaWaitKind) {
 - (void)resolveDialogSkipped:(BOOL)skipped;
 - (void)callGlobal:(NSString *)name;
 - (void)shutdown;
+- (void)markFinished;
 
 @end
 

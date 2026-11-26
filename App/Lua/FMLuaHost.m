@@ -38,18 +38,18 @@ static int FMRetBool(lua_State *L, BOOL value) {
 
 #pragma mark - 原生函数
 
-#define FM_DELEGATE(host, call) do { FMLuaHost *h = (host); if (h.delegate) { [h.delegate call]; } } while (0)
+#define FM_DELEGATE(host, call) do { FMLuaHost *fmh = (host); if (fmh.delegate) { [fmh.delegate call]; } } while (0)
 
 static int n_sound_play(lua_State *L) {
     FMLuaHost *h = FMHostOf(L);
     NSString *s = FMString(L, 1);
-    if (h && s.length) FM_DELEGATE(h, luaPlaySound(s));
+    if (h && s.length) FM_DELEGATE(h, luaPlaySound:s);
     return 0;
 }
 
 static int n_cam_goto(lua_State *L) {
     FMLuaHost *h = FMHostOf(L);
-    if (h) FM_DELEGATE(h, luaCameraGoto(CGPointMake(FMNumber(L, 1), FMNumber(L, 2))));
+    if (h) FM_DELEGATE(h, luaCameraGoto:CGPointMake(FMNumber(L, 1), FMNumber(L, 2)));
     return 0;
 }
 
@@ -61,25 +61,25 @@ static int n_cam_role(lua_State *L) {
 
 static int n_cam_follow(lua_State *L) {
     FMLuaHost *h = FMHostOf(L);
-    if (h) FM_DELEGATE(h, luaSetFollowRoleMode(FMBool(L, 1)));
+    if (h) FM_DELEGATE(h, luaSetFollowRoleMode:FMBool(L, 1));
     return 0;
 }
 
 static int n_set_input(lua_State *L) {
     FMLuaHost *h = FMHostOf(L);
-    if (h) FM_DELEGATE(h, luaSetUserInputEnabled(FMBool(L, 1)));
+    if (h) FM_DELEGATE(h, luaSetUserInputEnabled:FMBool(L, 1));
     return 0;
 }
 
 static int n_pause(lua_State *L) {
     FMLuaHost *h = FMHostOf(L);
-    if (h) FM_DELEGATE(h, luaSetLogicPaused(YES));
+    if (h) FM_DELEGATE(h, luaSetLogicPaused:YES);
     return 0;
 }
 
 static int n_resume(lua_State *L) {
     FMLuaHost *h = FMHostOf(L);
-    if (h) FM_DELEGATE(h, luaSetLogicPaused(NO));
+    if (h) FM_DELEGATE(h, luaSetLogicPaused:NO);
     return 0;
 }
 
@@ -105,13 +105,13 @@ static int n_success(lua_State *L) {
 
 static int n_tutorial(lua_State *L) {
     FMLuaHost *h = FMHostOf(L);
-    if (h) FM_DELEGATE(h, luaShowTutorialDiagram((NSInteger)FMNumber(L, 1)));
+    if (h) FM_DELEGATE(h, luaShowTutorialDiagram:(NSInteger)FMNumber(L, 1));
     return 0;
 }
 
 static int n_set_idle(lua_State *L) {
     FMLuaHost *h = FMHostOf(L);
-    if (h) FM_DELEGATE(h, luaSetIdleActionEnabled(FMBool(L, 1)));
+    if (h) FM_DELEGATE(h, luaSetIdleActionEnabled:FMBool(L, 1));
     return 0;
 }
 
@@ -136,7 +136,7 @@ static int n_global_get(lua_State *L) {
 static int n_global_set(lua_State *L) {
     FMLuaHost *h = FMHostOf(L);
     NSString *key = FMString(L, 1);
-    if (h && key) FM_DELEGATE(h, luaGlobalSetBool(key));
+    if (h && key) FM_DELEGATE(h, luaGlobalSetBool:key);
     return 0;
 }
 
@@ -160,7 +160,7 @@ static int n_play_mode(lua_State *L) {
 static int n_load_rep(lua_State *L) {
     FMLuaHost *h = FMHostOf(L);
     NSString *name = FMString(L, 1);
-    if (h && name) FM_DELEGATE(h, luaLoadTutorialReplay(name));
+    if (h && name) FM_DELEGATE(h, luaLoadTutorialReplay:name);
     return 0;
 }
 
@@ -178,7 +178,7 @@ static int n_replay_pause(lua_State *L) {
 
 static int n_set_skip(lua_State *L) {
     FMLuaHost *h = FMHostOf(L);
-    if (h) FM_DELEGATE(h, luaSetSkipEnabled(FMBool(L, 1)));
+    if (h) FM_DELEGATE(h, luaSetSkipEnabled:FMBool(L, 1));
     return 0;
 }
 
@@ -244,7 +244,6 @@ static NSString *const FMFaces[] = {
 - (void)releaseActive;
 - (void)captureErrorFrom:(lua_State *)state;
 - (void)failWithMessage:(NSString *)message;
-- (void)markFinished;
 @end
 
 @implementation FMLuaHost
