@@ -38,7 +38,7 @@ push_log() {
 
 on_error() {
   local code=$?
-  echo "::error::构建失败（$code），命令：$BASH_COMMAND"
+  echo "::error::构建失败（${code}），命令：${BASH_COMMAND}"
   push_log "failure"
   exit "$code"
 }
