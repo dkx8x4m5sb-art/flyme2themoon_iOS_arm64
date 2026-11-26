@@ -151,17 +151,18 @@ log "打包未签名 IPA"
 rm -rf Payload "$IPA"
 mkdir -p Payload
 cp -R "$APP_PATH" Payload/
-plutil -convert xml1 "Payload/FlyMe2theMoon.app/Info.plist" 2>/dev/null || true
-# ad-hoc 签名：方便第三方重签工具直接覆盖签名槽
-codesign --force --deep --sign - "Payload/FlyMe2theMoon.app" 2>&1 | tail -3 || echo "!! ad-hoc 签名失败（继续）"
-codesign -dv "Payload/FlyMe2theMoon.app" 2>&1 | head -5 || true
+# 交付约定是「完全未签名」：去掉 xcodebuild 留下的 linker 签名与 _CodeSignature，
+# 否则第三方签名工具会先校验 embedded 签名，签名与 Mach-O 不一致时直接中止。
+codesign --remove-signature "Payload/FlyMe2theMoon.app" 2>&1 | tail -3 || true
+codesign --remove-signature "Payload/FlyMe2theMoon.app/FlyMe2theMoon" 2>&1 | tail -3 || true
+rm -rf "Payload/FlyMe2theMoon.app/_CodeSignature"
 # IPA 规范结构：zip 根目录下必须是 Payload/xxx.app
 rm -f "$IPA"
 zip -qry "$IPA" Payload
 
 ls -lh "$IPA"
 unzip -l "$IPA" | head -8
-unzip -l "$IPA" | grep -q "Payload/FlyMe2theMoon.app/Info.plist" || { echo "!! IPA 结构错误：缺少 Payload/ 顶层"; false; }
+$PY ci/check_ipa.py "$IPA"
 
 # ── 6. 发布到 build release，方便下载核对 ──────────────────────────────
 if [ -n "${GH_TOKEN:-}" ]; then
