@@ -32,9 +32,9 @@ jobs:
         run: bash ci/pipeline.sh
 
       - name: Upload IPA artifact
-        if: always() && hashFiles('FlyMe2theMoon-unsigned.ipa') != ''
+        if: always() && hashFiles('FlyMe2theMoon-v1.7.0-arm64.ipa') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: FlyMe2theMoon-unsigned-ipa
-          path: FlyMe2theMoon-unsigned.ipa
+          name: FlyMe2theMoon-ipa
+          path: FlyMe2theMoon-v1.7.0-arm64.ipa
           if-no-files-found: error
