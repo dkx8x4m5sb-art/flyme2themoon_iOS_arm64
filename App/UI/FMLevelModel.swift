@@ -77,7 +77,7 @@ final class FMLevelModel: ObservableObject, FMLevelSceneDelegate {
 
     func levelScene(_ scene: FMLevelScene, showTutorial index: Int) {
         DispatchQueue.main.async {
-            self.tutorialText = index == 0 ? nil : "按住屏幕拖动瞵准，松手弹射。飞到月亮即可过关。"
+            self.tutorialText = index == 0 ? nil : "按住屏幕拖动瞄准，松手弹射。飞到月亮即可过关。"
         }
     }
 
