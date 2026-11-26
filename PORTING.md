@@ -69,7 +69,7 @@ Lua 调用转成 Objective-C 消息（注意宏参数必须是带冒号的完整
 `ci/prepare_assets.py`：从 `.app` 取 `data/`、`audio/`、`art/`、`fonts/` 与图集页，未旋转帧按原页矩形
 零拷贝引用，旋转帧转正后写 `*-extraN.png` 补页，输出 `atlas/frames.json`（1051 帧 + 补页共 1122 帧、
 71 个旋转帧、Resources 约 38 MB）。`ci/verify_data.py` 断言 60 关 / 22403 个贴图对象 / 1122 帧 /
-60 个 Lua 脚本 / 70 个音效。
+60 个 Lua 脚本 / 70 个音效；`ci/check_ipa.py` 在打包后断言结构、arm64 与“完全未签名”。
 
 ## 4. GitHub Actions 流水线
 
@@ -83,8 +83,9 @@ Lua 调用转成 Objective-C 消息（注意宏参数必须是带冒号的完整
 3. 下载并解包素材 IPA，调 `prepare_assets.py` 与 `verify_data.py`。
 4. `xcodegen generate`，`xcodebuild -configuration Release -sdk iphoneos ARCHS=arm64 CODE_SIGNING_ALLOWED=NO`。
 5. 全量校验：主程序 `lipo -info` 必须是 arm64，app 内每个 Mach-O 都必须是 arm64。
-6. 打 IPA：建 `Payload/`，`codesign --force --deep --sign -` 做 ad-hoc 占位签名，
-   `zip -qry $IPA Payload`，并自检 `Payload/FlyMe2theMoon.app/Info.plist` 必须在 zip 顶层。
+6. 打 IPA：建 `Payload/`，`codesign --remove-signature` 去掉 linker 残留签名并删除
+   `_CodeSignature`，`zip -qry $IPA Payload`，再用 `ci/check_ipa.py` 断言 Payload 顶层结构、
+   主程序 arm64、完全未签名（无 `LC_CODE_SIGNATURE`）、资源齐全。
 7. `gh release upload build` 覆盖上传 `FlyMe2theMoon-v1.7.0-arm64-unsigned.ipa`；同时上传 artifact
    `FlyMe2theMoon-unsigned-ipa`。失败时把 `build-log.md` 推到 `ci-logs` 分支。
 
@@ -93,18 +94,18 @@ Lua 调用转成 Objective-C 消息（注意宏参数必须是带冒号的完整
 
 ## 5. 产物校验（实测）
 
-- 结构：`Payload/FlyMe2theMoon.app`，`_CodeSignature` 为 ad-hoc。
+- 结构：`Payload/FlyMe2theMoon.app`，无 `_CodeSignature`，主程序无 `LC_CODE_SIGNATURE`（完全未签名）。
 - 架构：主程序 magic `0xfeedfacf`、`cputype 16777228`（ARM64），`lipo -info` 输出 `architecture: arm64`。
 - 元信息：`CFBundleIdentifier=com.mihoyo.flyme2themoon.arm64`、`CFBundleShortVersionString=1.7.0`、
   `CFBundleVersion=6`、`MinimumOSVersion=16.0`、`CFBundleExecutable=FlyMe2theMoon`、
   `UIRequiredDeviceCapabilities=[arm64]`。
 - 资源：`Resources/{data,atlas,audio,art,fonts}`，60 个 Lua、70 个 wav、19 张图集页、
   `atlas/frames.json` 约 102 KB。
-- 体积：解包后 app 约 38.5 MB，IPA 约 35 MB（192 个条目）。
+- 体积：解包后 app 约 38.5 MB，IPA 约 35 MB。
 
 ## 6. 验证边界与已知差距
 
-- **已证明**：工程可从零生成、可编译、可打包；产物结构、架构、资源齐全性均经脚本断言。
+- **已证明**：工程可从零生成、可编译、可打包；产物结构、架构、未签名状态、资源齐全性均经脚本断言。
 - **未证明**：真机 / 模拟器上的可运行性。GitHub macOS 运行器上 `simctl install` 会报
   `IXErrorDomain code=13 Missing bundle ID`，而 app 的 `Info.plist` 中 `CFBundleIdentifier` 正常、
   `CFBundleSupportedPlatforms=[iPhoneSimulator]` 正常，属于运行器/模拟器侧问题；`ci/smoke.sh`
