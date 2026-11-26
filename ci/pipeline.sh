@@ -49,10 +49,20 @@ log "依赖：xcodegen / pillow"
 if ! command -v xcodegen >/dev/null 2>&1; then
   brew install xcodegen
 fi
+PY=python3
 if ! python3 -c "import PIL" >/dev/null 2>&1; then
-  python3 -m pip install --quiet --user pillow || python3 -m pip install --quiet pillow
+  python3 -m venv .venv || true
+  if [ -x .venv/bin/pip ]; then
+    .venv/bin/pip install --quiet --upgrade pip >/dev/null 2>&1 || true
+    .venv/bin/pip install --quiet pillow
+  else
+    python3 -m pip install --quiet --user pillow || python3 -m pip install --quiet --break-system-packages pillow
+  fi
 fi
-python3 -c "import PIL; print('pillow', PIL.__version__)"
+if [ -x .venv/bin/python ] && .venv/bin/python -c "import PIL" >/dev/null 2>&1; then
+  PY=.venv/bin/python
+fi
+$PY -c "import PIL; print('pillow', PIL.__version__)"
 
 # ── 0.5 Lua 5.1.5 源码（不进 git）──────────────────────────────────────
 log "Lua 5.1.5"
@@ -79,8 +89,8 @@ echo "素材来源: $APP"
 # ── 2. 铺素材 + 图集转正 ───────────────────────────────────────────────
 log "重建资源"
 rm -rf Resources
-python3 ci/prepare_assets.py "$APP" Resources
-python3 ci/verify_data.py Resources
+$PY ci/prepare_assets.py "$APP" Resources
+$PY ci/verify_data.py Resources
 
 # ── 3. 生成工程并编译 ──────────────────────────────────────────────────
 log "xcodegen"
