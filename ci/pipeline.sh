@@ -150,9 +150,13 @@ plutil -convert xml1 "Payload/FlyMe2theMoon.app/Info.plist" 2>/dev/null || true
 # ad-hoc 签名：方便第三方重签工具直接覆盖签名槽
 codesign --force --deep --sign - "Payload/FlyMe2theMoon.app" 2>&1 | tail -3 || echo "!! ad-hoc 签名失败（继续）"
 codesign -dv "Payload/FlyMe2theMoon.app" 2>&1 | head -5 || true
-(cd Payload && zip -qry "../$IPA" FlyMe2theMoon.app)
+# IPA 规范结构：zip 根目录下必须是 Payload/xxx.app
+rm -f "$IPA"
+zip -qry "$IPA" Payload
+
 ls -lh "$IPA"
 unzip -l "$IPA" | head -8
+unzip -l "$IPA" | grep -q "Payload/FlyMe2theMoon.app/Info.plist" || { echo "!! IPA 结构错误：缺少 Payload/ 顶层"; false; }
 
 # ── 6. 发布到 build release，方便下载核对 ──────────────────────────────
 if [ -n "${GH_TOKEN:-}" ]; then
