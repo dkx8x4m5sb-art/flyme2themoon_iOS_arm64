@@ -1,0 +1,40 @@
+name: Build ARM64 IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-arm64
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      IPA_URL: https://github.com/dkx8x4m5sb-art/flyme2themoon_iOS_arm64/releases/download/assets/FlyMe2theMoon_v1.7.0_unsigned.ipa
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          python3 --version
+
+      - name: Build
+        run: bash ci/pipeline.sh
+
+      - name: Upload IPA artifact
+        if: always() && hashFiles('FlyMe2theMoon-unsigned.ipa') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlyMe2theMoon-unsigned-ipa
+          path: FlyMe2theMoon-unsigned.ipa
+          if-no-files-found: error

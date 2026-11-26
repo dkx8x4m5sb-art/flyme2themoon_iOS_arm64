@@ -1,0 +1,10 @@
+build/
+DerivedData/
+*.xcworkspace/xcuserdata/
+Resources/
+Sources/lua/*.c
+Sources/lua/*.h
+lua-5.1.5/
+lua515.tgz
+ci-raw.log
+build-log.md

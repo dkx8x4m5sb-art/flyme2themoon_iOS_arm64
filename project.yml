@@ -1,0 +1,63 @@
+name: FlyMe2theMoon
+options:
+  bundleIdPrefix: com.mihoyo
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    ARCHS: arm64
+    ONLY_ACTIVE_ARCH: NO
+    CLANG_ENABLE_OBJC_ARC: YES
+    ENABLE_BITCODE: NO
+    CODE_SIGNING_ALLOWED: NO
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGN_IDENTITY: ""
+
+targets:
+  FlyMe2theMoon:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+      - path: Sources/lua
+        excludes:
+          - lua.c
+          - luac.c
+          - liolib.c
+          - loslib.c
+          - loadlib.c
+          - linit.c
+      - path: Resources
+        type: folder
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mihoyo.flyme2themoon.arm64
+        PRODUCT_NAME: FlyMe2theMoon
+        MARKETING_VERSION: "1.7.0"
+        CURRENT_PROJECT_VERSION: "6"
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_OBJC_BRIDGING_HEADER: App/Bridging-Header.h
+        HEADER_SEARCH_PATHS: $(SRCROOT)/Sources/lua
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_KEY_CFBundleDisplayName: 飞向月球
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIUserInterfaceStyle: Dark
+        INFOPLIST_KEY_UIStatusBarHidden: YES
+        INFOPLIST_KEY_UIViewControllerBasedStatusBarAppearance: NO
+        INFOPLIST_KEY_UIRequiresFullScreen: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+
+schemes:
+  FlyMe2theMoon:
+    build:
+      targets:
+        FlyMe2theMoon: all
+    run:
+      config: Release
