@@ -3,7 +3,7 @@
 原版是 2011 年的 32 位 iOS 游戏（armv7、iOS 3.2 时代），在 iOS 11 之后已经无法启动。
 这个仓库把原版的关卡数据、图集、音效和 Lua 关卡脚本搬到 64 位环境里，用
 **SwiftUI + SpriteKit + Lua 5.1.5** 重新实现运行时，由 GitHub Actions 直接产出
-**未签名 arm64 IPA**。
+**arm64 IPA（ad-hoc 签名，Info.plist 已绑定，可直接交给全能签等工具重签）**。
 
 ## 怎么出包
 
@@ -14,8 +14,13 @@
    并把 atlas.json 里 71 个 **rotated 帧**转正后追加到图集补页，生成 `atlas/frames.json`；
 3. `ci/verify_data.py` 断言 60 关的 2.2 万个贴图对象、碰撞多边形、Lua 脚本、音效全部对得上；
 4. `xcodegen` 生成工程，`xcodebuild` 以 arm64 编 Release；
-5. 逐个检查 app 内所有 Mach-O 都是 arm64，再打包成 `FlyMe2theMoon-unsigned.ipa`，
-   挂到 release `build` 并上传 artifact。
+5. 逐个检查 app 内所有 Mach-O 都是 arm64；`codesign --remove-signature` 清掉 ld 的 linker 残留签名，
+   再用 `codesign --force --sign -` 打一份 ad-hoc 签名，`ci/fix_infoplist_slot.py` 把 Info.plist 的
+   SHA-256 补写进 CodeDirectory special slot -1（codesign 对 iOS 扁平 bundle 有时不绑定该项，
+   而第三方重签工具的预检会因此报 “Info.plist无效”）；
+6. `codesign --verify --strict` 与 `ci/check_signature.py` 双重校验（分页哈希、Info.plist 槽、
+   CodeResources 槽必须全一致）才以签名包交付，只要有一项不成立就回退为完全未签名；
+7. 打包成 `FlyMe2theMoon-v1.7.0-arm64.ipa`，挂到 release `build` 并上传 artifact。
 
 失败时构建日志会推到 `ci-logs` 分支的 `build-log.md`。
 
@@ -63,7 +68,7 @@ project.yml         xcodegen 工程描述
 - CI 会实际跑一遍：装依赖 → 下载 Lua 5.1.5 → 解原版包 → 重建资源并自检 →
   xcodegen → `xcodebuild`（Release/iphoneos）→ 全量 Mach-O arm64 校验 → 打 IPA →
   上传 release `build` 与 artifact。最新一次成功构建的产物：
-  `https://github.com/dkx8x4m5sb-art/flyme2themoon_iOS_arm64/releases/download/build/FlyMe2theMoon-v1.7.0-arm64-unsigned.ipa`
+  `https://github.com/dkx8x4m5sb-art/flyme2themoon_iOS_arm64/releases/download/build/FlyMe2theMoon-v1.7.0-arm64.ipa`
 - 产物结构为 `Payload/FlyMe2theMoon.app`，`CFBundleIdentifier=com.mihoyo.flyme2themoon.arm64`，
   `MinimumOSVersion=16.0`，主程序 `CPU_TYPE_ARM64`；`Resources/` 内含 `data/`、`atlas/`、
   `audio/`、`art/`、`fonts/`。
