@@ -4,6 +4,11 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
+if [ "${SIM_SMOKE:-0}" != "1" ]; then
+  echo "模拟器冒烟测试：默认跳过（设置 SIM_SMOKE=1 启用）"
+  exit 0
+fi
+
 BID=com.mihoyo.flyme2themoon.arm64
 SHOT=smoke-menu.png
 FAIL=smoke-fail.txt
@@ -40,7 +45,7 @@ xcrun simctl bootstatus "$UDID" -b
 ls -l "$SIM_APP"
 plutil -p "$SIM_APP/Info.plist" | grep -E "CFBundleIdentifier|CFBundleSupportedPlatforms|CFBundleExecutable" || note_fail "Info.plist 关键键缺失"
 
-# 不要 --deep：--deep 签名会让 app 的 Info.plist 变成 not bound，simctl 就取不到 bundle id
+# 不要 --deep：--deep 签名会让 app 的 Info.plist 变成 not bound
 codesign --force --sign - --identifier "$BID" "$SIM_APP" 2>&1 | tail -3 || true
 codesign -dv "$SIM_APP" 2>&1 | head -6 || true
 

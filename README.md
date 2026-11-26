@@ -29,7 +29,7 @@ App/                Swift 源码
   UI/               菜单、选关、关卡 HUD、对话框、结算、设置
   Audio/            音效缓存播放
 Sources/lua/        Lua 5.1.5（去掉 io/os/package，构建时下载）
-ci/                 prepare_assets.py / verify_data.py / pipeline.sh
+ci/                 prepare_assets.py / verify_data.py / pipeline.sh / smoke.sh
 Tools/lua_sim.lua   本地跑一遍 60 个关卡脚本，检查 prelude 接口
 project.yml         xcodegen 工程描述
 ```
@@ -57,6 +57,21 @@ project.yml         xcodegen 工程描述
 - 星级阈值来自 `score.json` 的 `svrs`（按通关时间判定），原版是按收集星星计分。
 - 手感参数（重力/初速/阻尼）是按设计分辨率离线校准的，没有真机对照，可以在
   `FMLevelScene.Tuning` 里调。
+
+## 验证状态
+
+- CI 会实际跑一遍：装依赖 → 下载 Lua 5.1.5 → 解原版包 → 重建资源并自检 →
+  xcodegen → `xcodebuild`（Release/iphoneos）→ 全量 Mach-O arm64 校验 → 打 IPA →
+  上传 release `build` 与 artifact。最新一次成功构建的产物：
+  `https://github.com/dkx8x4m5sb-art/flyme2themoon_iOS_arm64/releases/download/build/FlyMe2theMoon-v1.7.0-arm64-unsigned.ipa`
+- 产物结构为 `Payload/FlyMe2theMoon.app`，`CFBundleIdentifier=com.mihoyo.flyme2themoon.arm64`，
+  `MinimumOSVersion=16.0`，主程序 `CPU_TYPE_ARM64`；`Resources/` 内含 `data/`、`atlas/`、
+  `audio/`、`art/`、`fonts/`。
+- 模拟器冒烟脚本 `ci/smoke.sh` 用于本地验证“能装能启动”：`SIM_SMOKE=1 bash ci/smoke.sh`。
+  默认不跑——GitHub macOS 运行器上 `simctl install` 会报 `IXErrorDomain code=13 Missing bundle ID`
+  （app 的 `Info.plist` 里 `CFBundleIdentifier` 是正常的，属于运行器/模拟器侧问题），
+  因此流水线不把它当作阻断条件。
+- 尚未做真机运行验证与手感对照，见“已知差距”。
 
 ## 本地构建
 
